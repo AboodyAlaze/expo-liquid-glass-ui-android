@@ -1,0 +1,14 @@
+{
+  "platforms": [
+    "android"
+  ],
+  "android": {
+    "modules": [
+      "expo.modules.liquidglassuiandroid.LiquidGlassViewModule",
+      "expo.modules.liquidglassuiandroid.LiquidGlassContainerModule",
+      "expo.modules.liquidglassuiandroid.LiquidGlassSwitchModule",
+      "expo.modules.liquidglassuiandroid.LiquidGlassSliderModule",
+      "expo.modules.liquidglassuiandroid.LiquidGlassHapticsModule"
+    ]
+  }
+}
