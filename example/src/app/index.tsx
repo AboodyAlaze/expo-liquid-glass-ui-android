@@ -48,14 +48,14 @@ export default function Demo() {
           <GlassContainer dark style={styles.row}>
             <GlassButton
               dark
-              style={[styles.btn, { width: '45%', }]}
+              style={[styles.btn, { width: 170, paddingVertical: 18, borderRadius: 18 }]}
               onPress={() => setLast('Custom width / padding / radius')}>
               <Text style={styles.btnIcon}>♥</Text>
-              <Text style={{color:'white'}}>Like</Text>
+              <Text style={styles.btnText}>Like</Text>
             </GlassButton>
             <GlassButton
               dark
-              style={[styles.btn, { width: '45%', height: 58, paddingHorizontal: 0, paddingVertical: 0 }]}
+              style={[styles.btn, { width: 58, height: 58, paddingHorizontal: 0, paddingVertical: 0 }]}
               onPress={() => setLast('Round icon button')}
               onLongPress={() => setLast('Long press!')}>
               <Text style={styles.btnIcon}>＋</Text>

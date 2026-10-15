@@ -48,9 +48,10 @@ class GlassRenderer(private val density: Float) {
     winX: Float, winY: Float, look: GlassLook,
     lightAngle: Float = -0.8f, zoom: Float = 1f,
     glowX: Float = 0f, glowY: Float = 0f, glow: Float = 0f,
+    alpha: Float = 1f,
   ) {
     one[0] = left; one[1] = top; one[2] = right; one[3] = bottom; one[4] = radius
-    drawShapes(canvas, backdrop, one, 1, winX, winY, look, 0f, lightAngle, zoom, (left + right) / 2f, (top + bottom) / 2f, glowX, glowY, glow)
+    drawShapes(canvas, backdrop, one, 1, winX, winY, look, 0f, lightAngle, zoom, (left + right) / 2f, (top + bottom) / 2f, glowX, glowY, glow, alpha)
   }
 
   /**
@@ -63,9 +64,10 @@ class GlassRenderer(private val density: Float) {
     winX: Float, winY: Float, look: GlassLook, merge: Float,
     lightAngle: Float = -0.8f, zoom: Float = 1f, zoomX: Float = 0f, zoomY: Float = 0f,
     glowX: Float = 0f, glowY: Float = 0f, glow: Float = 0f,
+    alpha: Float = 1f,
   ) {
     val n = min(count, 8)
-    if (n <= 0) return
+    if (n <= 0 || alpha <= 0.001f) return
     var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
     var minHalf = Float.MAX_VALUE
     for (i in 0 until n) {
@@ -124,6 +126,7 @@ class GlassRenderer(private val density: Float) {
     val blur = if (look.blur > 0.1f) RenderEffect.createBlurEffect(look.blur * density, look.blur * density, Shader.TileMode.CLAMP) else null
     rn.setRenderEffect(if (blur != null) RenderEffect.createChainEffect(glass, blur) else glass)
     rn.setClipToOutline(false)
+    rn.setAlpha(alpha.coerceIn(0f, 1f))
     canvas.drawRenderNode(rn)
   }
 

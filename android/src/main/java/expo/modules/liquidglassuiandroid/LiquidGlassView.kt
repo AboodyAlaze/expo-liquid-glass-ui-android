@@ -69,8 +69,11 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
   internal fun glowLocal(): FloatArray = floatArrayOf(touchX, touchY, glow.value)
 
   // ───────── backdrop: refreshed before every frame the window draws ─────────
+  private val appear = Spring(0f, 600f, 1f) // glass fades in once it has a real backdrop
+
   private val preDraw = ViewTreeObserver.OnPreDrawListener {
     if (!grouped && backdrop.capture(this)) {
+      if (appear.target == 0f) { appear.target = 1f; startLoop() }
       val (x, y) = windowOrigin()
       if (x != lastX || y != lastY) invalidate() // moved (e.g. scrolling) → re-place the glass
     }
@@ -103,10 +106,14 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
     val (x, y) = windowOrigin(); lastX = x; lastY = y
     look.tint = effectiveTint()
     val r = cornerRadiusDp * d
-    if (!grouped) renderer.draw(
+    // Before the first real capture we draw no glass at all (instead of a grey stand-in that
+    // would "pop" into glass); old devices without capture keep their simple translucent look.
+    val canCapture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    if (!grouped && (backdrop.ready || !canCapture)) renderer.draw(
       canvas, if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null,
       0f, 0f, width.toFloat(), height.toFloat(), r, x.toFloat(), y.toFloat(), look,
       glowX = touchX, glowY = touchY, glow = glow.value,
+      alpha = if (canCapture) appear.value else 1f,
     )
     if (borderWidthDp > 0f) {
       val bw = borderWidthDp * d
@@ -151,6 +158,10 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
     onLongPress(mapOf())
   }
+
+  // A button owns every touch on its surface: children like an Svg (react-native-svg grabs touches
+  // for its own shapes) or an Image must never swallow the press.
+  override fun onInterceptTouchEvent(e: MotionEvent): Boolean = interactive && !disabled
 
   override fun onTouchEvent(e: MotionEvent): Boolean {
     if (!interactive || disabled) return super.onTouchEvent(e)
@@ -207,6 +218,7 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
       val dt = if (lastFrame == 0L) 0.016f else ((now - lastFrame) / 1e9f).coerceIn(0.001f, 0.032f)
       lastFrame = now
       var moving = press.step(dt)
+      moving = appear.step(dt) || moving
       moving = offX.step(dt) || moving
       moving = offY.step(dt) || moving
       moving = glow.step(dt) || moving

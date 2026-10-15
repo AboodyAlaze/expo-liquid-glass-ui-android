@@ -56,8 +56,22 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
     invalidate()
   }
 
+  private val appear = Spring(0f, 600f, 1f)
+  private var fading = false
+  private val fadeFrame = object : Choreographer.FrameCallback {
+    private var last = 0L
+    override fun doFrame(now: Long) {
+      val dt = if (last == 0L) 0.016f else ((now - last) / 1e9f).coerceIn(0.001f, 0.032f)
+      last = now
+      val moving = appear.step(dt)
+      invalidate()
+      if (moving) Choreographer.getInstance().postFrameCallback(this) else fading = false
+    }
+  }
+
   private val preDraw = ViewTreeObserver.OnPreDrawListener {
     if (backdrop.capture(this)) {
+      if (appear.target == 0f && !fading) { appear.target = 1f; fading = true; Choreographer.getInstance().postFrameCallback(fadeFrame) }
       val (x, y) = windowOrigin()
       if (x != lastX || y != lastY) invalidate()
     }
@@ -104,13 +118,15 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
       }
       n++
     }
-    if (n > 0) {
+    val canCapture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    if (n > 0 && (backdrop.ready || !canCapture)) {
       val (x, y) = windowOrigin(); lastX = x; lastY = y
       look.tint = tintColor ?: if (dark) Color.argb(46, 0, 0, 0) else Color.argb(36, 255, 255, 255)
       renderer.drawShapes(
         canvas, if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null,
         shapes, n, x.toFloat(), y.toFloat(), look, spacingDp * d,
         glowX = glowX, glowY = glowY, glow = glow,
+        alpha = if (canCapture) appear.value else 1f,
       )
     }
     super.dispatchDraw(canvas)

@@ -258,7 +258,7 @@ export function GlassButton({ title, titleStyle, children, style, disabled, dark
 }
 
 const styles = StyleSheet.create({
-  hug: { alignSelf: 'flex-start' }, 
+  hug: { alignSelf: 'flex-start' }, // width = content; override from `style` (alignSelf / width)
   title: { fontSize: 17, fontWeight: '600' },
   disabled: { opacity: 0.5 },
 });

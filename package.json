@@ -1,6 +1,6 @@
 {
   "name": "expo-liquid-glass-ui-android",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Native Liquid Glass components for Expo on Android: GlassView, GlassButton, GlassCard, GlassSwitch, GlassSlider, GlassSheet, GlassMenu",
   "main": "build/index.js",
   "types": "build/index.d.ts",

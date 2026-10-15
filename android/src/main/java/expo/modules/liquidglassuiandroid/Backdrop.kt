@@ -29,6 +29,10 @@ class Backdrop {
   private var node: Any? = null // RenderNode (API 29+)
   private var failed = false
   private var failedAt = 0L
+
+  /** True once a backdrop was recorded successfully at least once. */
+  var ready = false
+    private set
   private var attachedAt = 0L
   private var slowFrames = 0
   private var skip = 0
@@ -49,7 +53,7 @@ class Backdrop {
   fun capture(target: View): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
     if (failed) {
-      if (SystemClock.uptimeMillis() - failedAt < 1000) return false
+      if (SystemClock.uptimeMillis() - failedAt < 100) return false
       failed = false
     }
     if (capturing || !target.isShown || target.width == 0 || target.height == 0) return false
@@ -58,6 +62,7 @@ class Backdrop {
     val t0 = System.nanoTime()
     try {
       record(target)
+      ready = true
     } catch (t: Throwable) {
       failed = true; failedAt = SystemClock.uptimeMillis()
       Log.w("LiquidGlassUI", "Backdrop capture paused after an error", t)
