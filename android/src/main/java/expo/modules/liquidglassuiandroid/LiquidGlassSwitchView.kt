@@ -24,7 +24,8 @@ class LiquidGlassSwitchView(context: Context, appContext: AppContext) : LensCont
   private var initialized = false
 
   private val progress = Spring(0f, 420f, 0.78f)  // 0 off … 1 on
-  private val hold = Spring(0f, 520f, 0.7f)       // 0 knob … 1 lens
+  private val hold = Spring(0f, 520f, 0.7f)
+  override fun lensVisible() = hold.value > 0.001f || hold.target > 0f       // 0 knob … 1 lens
 
   private var pressed = false
   private var dragging = false

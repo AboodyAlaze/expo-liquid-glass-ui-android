@@ -16,7 +16,9 @@ import kotlin.math.roundToInt
 
 /** Look of the glass. Sizes are in dp. */
 data class GlassLook(
-  var blur: Float = 3f,
+  // Blur costs a full extra GPU pass over the whole glass layer: off by default (the refraction
+  // already gives the liquid look). Opt in per view with the `blur` prop.
+  var blur: Float = 0f,
   var refraction: Float = 14f,
   var bezel: Float = 18f,
   var chroma: Float = 0.10f,
@@ -26,11 +28,17 @@ data class GlassLook(
 )
 
 /**
- * Draws liquid glass for 1–8 rounded shapes (they melt together when close) refracting a
- * backdrop RenderNode.
+ * Draws liquid glass for 1–8 rounded shapes (they melt together when close), refracting a
+ * backdrop RenderNode given in the SAME local coordinates as the shapes.
+ *
  *  - Android 13+: AGSL shader (refraction, chromatic edge, specular rim, smooth union) + light blur
  *  - Android 12: frosted glass per shape (blur + tint)
  *  - older / software canvas / no backdrop yet: a light translucent fill
+ *
+ * Fast paths:
+ *  - the glass layer is only as big as the shapes + the blur margin: the shader only ever looks
+ *    INWARD (refraction bends toward the centre), so no margin is needed for it;
+ *  - the node is re-recorded and the GPU effect rebuilt only when something actually changed.
  */
 class GlassRenderer(private val density: Float) {
   private var node: Any? = null      // RenderNode
@@ -41,17 +49,26 @@ class GlassRenderer(private val density: Float) {
   private val ra = FloatArray(4)
   private val rb = FloatArray(4)
 
-  /** One shape in the view's local coordinates (may extend outside the view). */
+  // what the current node / effect were built from (to skip identical rebuilds)
+  private var recBackdrop: Any? = null
+  private var recL = 0; private var recT = 0; private var recR = 0; private var recB = 0
+  private val key = FloatArray(64)
+  private val lastKey = FloatArray(64)
+  private var keyLen = 0
+  private var lastKeyLen = -1
+  private var frosted: Array<Any?> = arrayOfNulls(8)
+
+  /** One shape in local coordinates (may extend outside the view). */
   fun draw(
     canvas: Canvas, backdrop: RenderNode?,
     left: Float, top: Float, right: Float, bottom: Float, radius: Float,
-    winX: Float, winY: Float, look: GlassLook,
+    look: GlassLook,
     lightAngle: Float = -0.8f, zoom: Float = 1f,
     glowX: Float = 0f, glowY: Float = 0f, glow: Float = 0f,
     alpha: Float = 1f,
   ) {
     one[0] = left; one[1] = top; one[2] = right; one[3] = bottom; one[4] = radius
-    drawShapes(canvas, backdrop, one, 1, winX, winY, look, 0f, lightAngle, zoom, (left + right) / 2f, (top + bottom) / 2f, glowX, glowY, glow, alpha)
+    drawShapes(canvas, backdrop, one, 1, look, 0f, lightAngle, zoom, (left + right) / 2f, (top + bottom) / 2f, glowX, glowY, glow, alpha)
   }
 
   /**
@@ -61,7 +78,7 @@ class GlassRenderer(private val density: Float) {
   fun drawShapes(
     canvas: Canvas, backdrop: RenderNode?,
     shapes: FloatArray, count: Int,
-    winX: Float, winY: Float, look: GlassLook, merge: Float,
+    look: GlassLook, merge: Float,
     lightAngle: Float = -0.8f, zoom: Float = 1f, zoomX: Float = 0f, zoomY: Float = 0f,
     glowX: Float = 0f, glowY: Float = 0f, glow: Float = 0f,
     alpha: Float = 1f,
@@ -78,85 +95,115 @@ class GlassRenderer(private val density: Float) {
     }
     if (l >= r || t >= b) return
 
-    if (backdrop == null || Backdrop.capturing || !canvas.isHardwareAccelerated || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-      for (i in 0 until n) drawFallback(canvas, shapes, i, look); return
+    if (backdrop == null || !canvas.isHardwareAccelerated || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+      for (i in 0 until n) drawFallback(canvas, shapes, i, look, alpha); return
     }
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-      for (i in 0 until n) drawFrosted(canvas, backdrop, shapes, i, winX, winY, look); return
+      for (i in 0 until n) drawFrosted(canvas, backdrop, shapes, i, look, alpha); return
     }
 
-    val pad = (look.refraction * 2f + look.blur * 3f + 2f) * density + merge
-    val ox = (l - pad).roundToInt().toFloat(); val oy = (t - pad).roundToInt().toFloat()
+    // margin: only what the blur reads around the shape (+ room for the liquid bridge)
+    val pad = (look.blur * 3f + 2f) * density + merge
+    val nl = (l - pad).roundToInt(); val nt = (t - pad).roundToInt()
+    val nr = (r + pad).roundToInt(); val nb = (b + pad).roundToInt()
+    val ox = nl.toFloat(); val oy = nt.toFloat()
     val rn = (node as? RenderNode) ?: RenderNode("liquid-glass").also { node = it }
-    rn.setPosition(ox.toInt(), oy.toInt(), (r + pad).roundToInt(), (b + pad).roundToInt())
-    val rc = rn.beginRecording()
-    try {
-      rc.translate(-(winX + ox), -(winY + oy))
-      rc.drawRenderNode(backdrop)
-    } finally { rn.endRecording() }
 
-    val sh = (shader as? RuntimeShader) ?: RuntimeShader(GLASS_AGSL).also { shader = it }
-    for (i in 0 until 8) {
-      val name = SHAPE_NAMES[i]
-      if (i < n) {
-        val o = i * 5
-        sh.setFloatUniform(name, shapes[o] - ox, shapes[o + 1] - oy, shapes[o + 2] - ox, shapes[o + 3] - oy)
-        if (i < 4) ra[i] = shapes[o + 4] else rb[i - 4] = shapes[o + 4]
-      } else sh.setFloatUniform(name, -1e5f, -1e5f, -1e5f + 1f, -1e5f + 1f)
+    // re-record only if the area or the backdrop object changed (the backdrop's CONTENT can change
+    // freely: we only hold a reference to it)
+    if (backdrop !== recBackdrop || nl != recL || nt != recT || nr != recR || nb != recB || !rn.hasDisplayList()) {
+      rn.setPosition(nl, nt, nr, nb)
+      val rc = rn.beginRecording()
+      try {
+        rc.translate(-ox, -oy)
+        rc.drawRenderNode(backdrop)
+      } finally { rn.endRecording() }
+      recBackdrop = backdrop; recL = nl; recT = nt; recR = nr; recB = nb
     }
+
+    // rebuild the GPU effect only when a uniform actually changed
     val bezelPx = min(look.bezel * density, minHalf * 0.5f).coerceAtLeast(1f)
     val k = bezelPx / (look.bezel * density).coerceAtLeast(1f)
-    sh.setFloatUniform("radiiA", ra[0], ra[1], ra[2], ra[3])
-    sh.setFloatUniform("radiiB", rb[0], rb[1], rb[2], rb[3])
-    sh.setFloatUniform("count", n.toFloat())
-    sh.setFloatUniform("merge", merge)
-    sh.setFloatUniform("bezel", bezelPx)
-    sh.setFloatUniform("refraction", look.refraction * density * k)
-    sh.setFloatUniform("chroma", look.chroma)
-    sh.setFloatUniform("lightAngle", lightAngle)
-    sh.setFloatUniform("highlight", look.highlight)
-    sh.setFloatUniform("saturation", look.saturation)
-    sh.setFloatUniform("tint", Color.red(look.tint) / 255f, Color.green(look.tint) / 255f, Color.blue(look.tint) / 255f, Color.alpha(look.tint) / 255f)
-    sh.setFloatUniform("zoom", zoom)
-    sh.setFloatUniform("zoomCenter", zoomX - ox, zoomY - oy)
-    sh.setFloatUniform("glowPos", glowX - ox, glowY - oy)
-    sh.setFloatUniform("glowStrength", glow)
-    sh.setFloatUniform("glowRadius", 34f * density)
-    val glass = RenderEffect.createRuntimeShaderEffect(sh, "content")
-    val blur = if (look.blur > 0.1f) RenderEffect.createBlurEffect(look.blur * density, look.blur * density, Shader.TileMode.CLAMP) else null
-    rn.setRenderEffect(if (blur != null) RenderEffect.createChainEffect(glass, blur) else glass)
-    rn.setClipToOutline(false)
+    keyLen = 0
+    fun put(v: Float) { key[keyLen++] = v }
+    for (i in 0 until n * 5) put(shapes[i] - (if (i % 5 == 0 || i % 5 == 2) ox else if (i % 5 == 4) 0f else oy))
+    put(n.toFloat()); put(merge); put(bezelPx); put(look.refraction * density * k); put(look.chroma)
+    put(lightAngle); put(look.highlight); put(look.saturation); put((look.tint ushr 16).toFloat()); put((look.tint and 0xFFFF).toFloat()); put(zoom)
+    put(zoomX - ox); put(zoomY - oy); put(glowX - ox); put(glowY - oy); put(glow); put(look.blur)
+    if (keyLen != lastKeyLen || !sameKey()) {
+      val sh = (shader as? RuntimeShader) ?: RuntimeShader(GLASS_AGSL).also { shader = it }
+      for (i in 0 until 8) {
+        val name = SHAPE_NAMES[i]
+        if (i < n) {
+          val o = i * 5
+          sh.setFloatUniform(name, shapes[o] - ox, shapes[o + 1] - oy, shapes[o + 2] - ox, shapes[o + 3] - oy)
+          if (i < 4) ra[i] = shapes[o + 4] else rb[i - 4] = shapes[o + 4]
+        } else sh.setFloatUniform(name, -1e5f, -1e5f, -1e5f + 1f, -1e5f + 1f)
+      }
+      sh.setFloatUniform("radiiA", ra[0], ra[1], ra[2], ra[3])
+      sh.setFloatUniform("radiiB", rb[0], rb[1], rb[2], rb[3])
+      sh.setFloatUniform("count", n.toFloat())
+      sh.setFloatUniform("merge", merge)
+      sh.setFloatUniform("bezel", bezelPx)
+      sh.setFloatUniform("refraction", look.refraction * density * k)
+      sh.setFloatUniform("chroma", look.chroma)
+      sh.setFloatUniform("lightAngle", lightAngle)
+      sh.setFloatUniform("highlight", look.highlight)
+      sh.setFloatUniform("saturation", look.saturation)
+      sh.setFloatUniform("tint", Color.red(look.tint) / 255f, Color.green(look.tint) / 255f, Color.blue(look.tint) / 255f, Color.alpha(look.tint) / 255f)
+      sh.setFloatUniform("zoom", zoom)
+      sh.setFloatUniform("zoomCenter", zoomX - ox, zoomY - oy)
+      sh.setFloatUniform("glowPos", glowX - ox, glowY - oy)
+      sh.setFloatUniform("glowStrength", glow)
+      sh.setFloatUniform("glowRadius", 34f * density)
+      val glass = RenderEffect.createRuntimeShaderEffect(sh, "content")
+      val blur = if (look.blur > 0.1f) RenderEffect.createBlurEffect(look.blur * density, look.blur * density, Shader.TileMode.CLAMP) else null
+      rn.setRenderEffect(if (blur != null) RenderEffect.createChainEffect(glass, blur) else glass)
+      System.arraycopy(key, 0, lastKey, 0, keyLen); lastKeyLen = keyLen
+    }
     rn.setAlpha(alpha.coerceIn(0f, 1f))
     canvas.drawRenderNode(rn)
   }
 
-  /** Android 12: frosted glass, one shape. */
-  private fun drawFrosted(canvas: Canvas, backdrop: RenderNode, s: FloatArray, i: Int, winX: Float, winY: Float, look: GlassLook) {
+  /** Draws the last glass node again (e.g. as the backdrop of glass nested inside this one). */
+  fun drawLast(canvas: Canvas) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val rn = node as? RenderNode ?: return
+    if (rn.hasDisplayList()) canvas.drawRenderNode(rn)
+  }
+
+  private fun sameKey(): Boolean {
+    for (i in 0 until keyLen) if (key[i] != lastKey[i]) return false
+    return true
+  }
+
+  /** Android 12: frosted glass, one shape (node reused per shape index). */
+  private fun drawFrosted(canvas: Canvas, backdrop: RenderNode, s: FloatArray, i: Int, look: GlassLook, alpha: Float) {
     val o = i * 5
     val l = s[o]; val t = s[o + 1]; val r = s[o + 2]; val b = s[o + 3]
     val rad = min(s[o + 4], min(r - l, b - t) / 2f)
-    val pad = 2f
-    val rn = RenderNode("liquid-glass-frost")
-    rn.setPosition((l - pad).roundToInt(), (t - pad).roundToInt(), (r + pad).roundToInt(), (b + pad).roundToInt())
-    val ox = (l - pad).roundToInt().toFloat(); val oy = (t - pad).roundToInt().toFloat()
+    val rn = (frosted[i] as? RenderNode) ?: RenderNode("liquid-glass-frost").also { frosted[i] = it }
+    val ox = l.roundToInt().toFloat(); val oy = t.roundToInt().toFloat()
+    rn.setPosition(ox.toInt(), oy.toInt(), r.roundToInt(), b.roundToInt())
     val rc = rn.beginRecording()
-    try { rc.translate(-(winX + ox), -(winY + oy)); rc.drawRenderNode(backdrop) } finally { rn.endRecording() }
+    try { rc.translate(-ox, -oy); rc.drawRenderNode(backdrop) } finally { rn.endRecording() }
     rn.setRenderEffect(RenderEffect.createBlurEffect(max(look.blur, 8f) * density, max(look.blur, 8f) * density, Shader.TileMode.CLAMP))
-    val outline = Outline(); outline.setRoundRect((l - ox).roundToInt(), (t - oy).roundToInt(), (r - ox).roundToInt(), (b - oy).roundToInt(), rad)
+    val outline = Outline(); outline.setRoundRect(0, 0, (r - ox).roundToInt(), (b - oy).roundToInt(), rad)
     rn.setOutline(outline); rn.setClipToOutline(true)
+    rn.setAlpha(alpha.coerceIn(0f, 1f))
     canvas.drawRenderNode(rn)
-    fill.color = look.tint; fill.alpha = max(Color.alpha(look.tint), 60)
+    fill.color = look.tint; fill.alpha = (max(Color.alpha(look.tint), 60) * alpha).toInt()
     rect.set(l, t, r, b); canvas.drawRoundRect(rect, rad, rad, fill)
   }
 
   /** No backdrop (yet) / old devices: a light, glass-like translucent fill — never a dark blob. */
-  private fun drawFallback(canvas: Canvas, s: FloatArray, i: Int, look: GlassLook) {
+  private fun drawFallback(canvas: Canvas, s: FloatArray, i: Int, look: GlassLook, alpha: Float) {
     val o = i * 5
     rect.set(s[o], s[o + 1], s[o + 2], s[o + 3])
     val rad = min(s[o + 4], min(rect.width(), rect.height()) / 2f)
-    fill.color = Color.argb(34, 255, 255, 255)
+    fill.color = Color.argb((34 * alpha).toInt(), 255, 255, 255)
     canvas.drawRoundRect(rect, rad, rad, fill)
-    fill.color = look.tint; fill.alpha = min(Color.alpha(look.tint), 60)
+    fill.color = look.tint; fill.alpha = (min(Color.alpha(look.tint), 60) * alpha).toInt()
     canvas.drawRoundRect(rect, rad, rad, fill)
   }
 

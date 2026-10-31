@@ -1,15 +1,25 @@
-import { cloneElement, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
-  Animated,
-  BackHandler,
-  PanResponder,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  useColorScheme,
-  useWindowDimensions,
-} from 'react-native';
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentRef,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { GlassSurface, type GlassLookProps } from './GlassView';
 import { Portal } from './Provider';
@@ -39,41 +49,81 @@ export type GlassMenuProps = GlassLookProps & {
 
 const ROW = 48;
 const PAD = 8;
+const BACK_ROW = -2; // the "‹ back" header row of a nested page
+const NONE = -1;
 
 /**
  * iOS 26-style Liquid Glass context menu, anchored to its trigger.
  * Press, slide your finger across the rows (haptic tick on each), release to pick.
  * Rows with `items` open a nested page. Needs <LiquidGlassProvider> around your app.
+ *
+ * The slide runs on the UI thread (Gesture Handler + Reanimated): the row under your finger
+ * lights up without a single React re-render.
  */
 export function GlassMenu({ items, children, width = 250, dark, ...look }: GlassMenuProps) {
   const scheme = useColorScheme();
   const isDark = dark ?? scheme === 'dark';
   const screen = useWindowDimensions();
-  const triggerRef = useRef<View>(null);
+  const triggerRef = useRef<ComponentRef<typeof View>>(null); // RN 0.88+: a ReactNativeElement
   const [anchor, setAnchor] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [pages, setPages] = useState<{ title: string; items: GlassMenuItem[] }[]>([]);
-  const [hover, setHover] = useState(-1);
-  const appear = useRef(new Animated.Value(0)).current;
-  const panelTop = useRef(0);
+
+  const appear = useSharedValue(0);
+  const hover = useSharedValue(NONE);
 
   const page = pages[pages.length - 1];
   const rows = page ? page.items : items;
   const hasHeader = !!page;
   const height = PAD * 2 + ROW * (rows.length + (hasHeader ? 1 : 0));
 
+  const hide = useCallback(() => setAnchor(null), []);
+
   const open = () => {
     triggerRef.current?.measureInWindow((x, y, w, h) => {
       setPages([]);
-      setHover(-1);
+      hover.value = NONE;
       setAnchor({ x, y, w, h });
       haptic('medium');
-      appear.setValue(0);
-      Animated.spring(appear, { toValue: 1, damping: 15, stiffness: 260, mass: 0.9, useNativeDriver: true }).start();
+      appear.value = 0;
+      appear.value = withSpring(1, { damping: 15, stiffness: 260, mass: 0.9 });
     });
   };
-  const close = () => {
-    Animated.timing(appear, { toValue: 0, duration: 140, useNativeDriver: true }).start(() => setAnchor(null));
-  };
+
+  const close = useCallback(() => {
+    appear.value = withTiming(0, { duration: 140 }, (finished) => {
+      if (finished) scheduleOnRN(hide);
+    });
+  }, [appear, hide]);
+
+  // latest values for callbacks coming back from the UI thread
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const lastChoice = useRef(0);
+
+  const choose = useCallback(
+    (i: number) => {
+      const now = Date.now();
+      if (now - lastChoice.current < 250) return; // a slide and a tap can't both pick
+      lastChoice.current = now;
+      if (i === BACK_ROW) {
+        setPages((p) => p.slice(0, -1));
+        return;
+      }
+      const item = rowsRef.current[i];
+      if (!item || item.disabled) return;
+      haptic('light');
+      if (item.items) {
+        setPages((p) => [...p, { title: item.title, items: item.items! }]);
+        return;
+      }
+      close();
+      item.onPress?.();
+    },
+    [close]
+  );
+  const tick = useCallback(() => haptic('selection'), []);
 
   useEffect(() => {
     if (!anchor) return;
@@ -83,64 +133,32 @@ export function GlassMenu({ items, children, width = 250, dark, ...look }: Glass
       return true;
     });
     return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor]);
+  }, [anchor, close]);
 
-  // latest values for the gesture handler
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
-  const headerRef = useRef(hasHeader);
-  headerRef.current = hasHeader;
-  const pagesRef = useRef(pages);
-  pagesRef.current = pages;
-  const hoverRef = useRef(-1);
-
-  const indexAt = (pageY: number) => {
-    let y = pageY - panelTop.current - PAD;
-    if (headerRef.current) {
-      if (y >= 0 && y < ROW) return -2; // back row
-      y -= ROW;
-    }
-    const i = Math.floor(y / ROW);
-    return y < 0 || i >= rowsRef.current.length ? -1 : i;
-  };
-  const setHoverTo = (i: number) => {
-    if (i !== hoverRef.current) {
-      hoverRef.current = i;
-      setHover(i);
-      if (i !== -1) haptic('selection');
-    }
-  };
-  const choose = (i: number) => {
-    if (i === -2) {
-      setPages((p) => p.slice(0, -1));
-      return;
-    }
-    const item = rowsRef.current[i];
-    if (!item || item.disabled) return;
-    haptic('light');
-    if (item.items) {
-      setPages((p) => [...p, { title: item.title, items: item.items! }]);
-      return;
-    }
-    close();
-    item.onPress?.();
-  };
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => setHoverTo(indexAt(e.nativeEvent.pageY)),
-      onPanResponderMove: (e) => setHoverTo(indexAt(e.nativeEvent.pageY)),
-      onPanResponderRelease: () => {
-        const i = hoverRef.current;
-        setHoverTo(-1);
-        if (i !== -1) choose(i);
-      },
-      onPanResponderTerminate: () => setHoverTo(-1),
-    })
-  ).current;
+  // press-and-slide, entirely on the UI thread
+  const rowCount = rows.length;
+  const slide = usePanGesture({
+    minDistance: 0,
+    onBegin: (e) => {
+      'worklet';
+      hover.value = indexAt(e.y, hasHeader, rowCount);
+      if (hover.value !== NONE) scheduleOnRN(tick);
+    },
+    onUpdate: (e) => {
+      'worklet';
+      const i = indexAt(e.y, hasHeader, rowCount);
+      if (i !== hover.value) {
+        hover.value = i;
+        if (i !== NONE) scheduleOnRN(tick);
+      }
+    },
+    onFinalize: (e) => {
+      'worklet';
+      const i = hover.value;
+      hover.value = NONE;
+      if (!e.canceled && i !== NONE) scheduleOnRN(choose, i);
+    },
+  });
 
   // placement: hang below the trigger, aligned to the side it's on; flip above if no room
   let left = 0;
@@ -159,8 +177,13 @@ export function GlassMenu({ items, children, width = 250, dark, ...look }: Glass
     }
   }
 
-  panelTop.current = top; // the portal host sits at the window origin → same coordinates as pageY
+  const panelStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(appear.value, [0, 0.3, 1], [0, 1, 1]),
+    transform: [{ scale: interpolate(appear.value, [0, 1], [0.55, 1]) }],
+  }));
+
   const ink = isDark ? '#fff' : '#111';
+  const highlight = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
   const trigger = isValidElement(children) ? cloneElement(children, { onPress: open }) : children;
 
   return (
@@ -171,52 +194,66 @@ export function GlassMenu({ items, children, width = 250, dark, ...look }: Glass
       {anchor && (
         <Portal>
           <Pressable style={StyleSheet.absoluteFill} onPress={close} />
-          <Animated.View
-            {...pan.panHandlers}
-            style={[
-              styles.panel,
-              {
-                left,
-                top,
-                width,
-                opacity: appear.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 1, 1] }),
-                transformOrigin: `${originX} ${originY}`,
-                transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] }) }],
-              },
-            ]}>
-            <GlassSurface
-              {...look}
-              dark={isDark}
-              defaultRadius={28}
-              blur={look.blur ?? 6}
-              tintColor={look.tintColor ?? (isDark ? 'rgba(28,28,34,0.66)' : 'rgba(255,255,255,0.72)')}
-              style={{ paddingVertical: PAD }}>
-              {hasHeader && (
-                <Row ink={ink} highlighted={hover === -2} title={page!.title} bold icon={<Text style={[styles.glyph, { color: ink }]}>‹</Text>} />
-              )}
-              {rows.map((item, i) => (
-                <Row
-                  key={`${pages.length}-${i}`}
-                  ink={item.destructive ? '#FF453A' : ink}
-                  highlighted={hover === i}
-                  title={item.title}
-                  icon={item.icon}
-                  checked={item.checked}
-                  disabled={item.disabled}
-                  chevron={!!item.items}
-                />
-              ))}
-            </GlassSurface>
-          </Animated.View>
+          <GestureDetector gesture={slide}>
+            <Animated.View style={[styles.panel, { left, top, width, transformOrigin: `${originX} ${originY}` }, panelStyle]}>
+              <GlassSurface
+                {...look}
+                dark={isDark}
+                defaultRadius={28}
+                blur={look.blur ?? 0}
+                tintColor={look.tintColor ?? (isDark ? 'rgba(28,28,34,0.66)' : 'rgba(255,255,255,0.72)')}
+                style={{ paddingVertical: PAD }}>
+                {hasHeader && (
+                  <Row
+                    index={BACK_ROW}
+                    hover={hover}
+                    highlight={highlight}
+                    ink={ink}
+                    title={page!.title}
+                    bold
+                    icon={<Text style={[styles.glyph, { color: ink }]}>‹</Text>}
+                  />
+                )}
+                {rows.map((item, i) => (
+                  <Row
+                    key={`${pages.length}-${i}`}
+                    index={i}
+                    hover={hover}
+                    highlight={highlight}
+                    ink={item.destructive ? '#FF453A' : ink}
+                    title={item.title}
+                    icon={item.icon}
+                    checked={item.checked}
+                    disabled={item.disabled}
+                    chevron={!!item.items}
+                  />
+                ))}
+              </GlassSurface>
+            </Animated.View>
+          </GestureDetector>
         </Portal>
       )}
     </>
   );
 }
 
+/** Which row is under y (panel-local): a row index, BACK_ROW, or NONE. Runs on the UI thread. */
+function indexAt(y: number, hasHeader: boolean, rowCount: number): number {
+  'worklet';
+  let p = y - PAD;
+  if (hasHeader) {
+    if (p >= 0 && p < ROW) return BACK_ROW;
+    p -= ROW;
+  }
+  const i = Math.floor(p / ROW);
+  return p < 0 || i >= rowCount ? NONE : i;
+}
+
 function Row(props: {
+  index: number;
+  hover: SharedValue<number>;
+  highlight: string;
   ink: string;
-  highlighted: boolean;
   title: string;
   icon?: ReactNode;
   checked?: boolean;
@@ -224,20 +261,20 @@ function Row(props: {
   chevron?: boolean;
   bold?: boolean;
 }) {
+  const { index, hover, highlight } = props;
+  // lights up when the finger is over it — no React re-render, straight on the UI thread
+  const lit = useAnimatedStyle(() => ({
+    backgroundColor: hover.value === index ? highlight : 'transparent',
+  }));
   return (
-    <View
-      style={[
-        styles.row,
-        props.highlighted && { backgroundColor: props.ink === '#fff' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' },
-        props.disabled && { opacity: 0.4 },
-      ]}>
+    <Animated.View style={[styles.row, props.disabled && styles.disabled, lit]}>
       <Text style={[styles.check, { color: props.ink }]}>{props.checked ? '✓' : ''}</Text>
       <View style={styles.icon}>{props.icon}</View>
-      <Text numberOfLines={1} style={[styles.title, { color: props.ink }, props.bold && { fontWeight: '600' }]}>
+      <Text numberOfLines={1} style={[styles.title, { color: props.ink }, props.bold && styles.bold]}>
         {props.title}
       </Text>
       {props.chevron && <Text style={[styles.chevron, { color: props.ink }]}>›</Text>}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -245,9 +282,11 @@ const styles = StyleSheet.create({
   triggerBox: {},
   panel: { position: 'absolute' },
   row: { height: ROW, marginHorizontal: 6, borderRadius: 16, flexDirection: 'row', alignItems: 'center', paddingRight: 14 },
+  disabled: { opacity: 0.4 },
   check: { width: 26, textAlign: 'center', fontSize: 15, fontWeight: '600' },
   icon: { width: 26, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   glyph: { fontSize: 24, marginTop: -3 },
   title: { flex: 1, fontSize: 17 },
+  bold: { fontWeight: '600' },
   chevron: { fontSize: 22, opacity: 0.5, marginLeft: 6 },
 });

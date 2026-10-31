@@ -8,8 +8,6 @@ import android.graphics.RectF
 import android.graphics.RenderNode
 import android.os.Build
 import android.view.Choreographer
-import android.view.View
-import android.view.ViewTreeObserver
 import expo.modules.kotlin.AppContext
 import expo.modules.kotlin.views.ExpoView
 
@@ -17,25 +15,31 @@ import expo.modules.kotlin.views.ExpoView
  * Base for GlassSwitch and GlassSlider.
  * At rest they draw a crisp white knob; while you hold them the knob turns into a liquid-glass
  * lens that magnifies the track and the page behind it.
+ *
+ * Performance: the page behind is captured ONLY while the lens is visible — a switch or slider
+ * at rest costs nothing per frame.
  */
 abstract class LensControl(context: Context, appContext: AppContext) : ExpoView(context, appContext) {
   protected val d = resources.displayMetrics.density
   internal var dark = false
   internal var disabled = false
-  protected val backdrop = Backdrop()
   protected val renderer = GlassRenderer(d)
+  protected val backdrop = Backdrop(this, object : Backdrop.Client {
+    override fun wantsBackdrop() = lensVisible()
+    override fun onBackdropReady() = invalidate()
+  })
+
+  /** True while the lens is (or is about to be) on screen. */
+  protected abstract fun lensVisible(): Boolean
   protected val lensLook = GlassLook(blur = 0f, refraction = 10f, bezel = 10f, chroma = 0.16f, highlight = 1.3f, saturation = 1.25f, tint = Color.argb(10, 255, 255, 255))
   protected val paint = Paint(Paint.ANTI_ALIAS_FLAG)
   protected val rect = RectF()
   private var lensNode: Any? = null
-  private val ploc = IntArray(2)
 
   init {
     setWillNotDraw(false)
     clipChildren = false
   }
-
-  private val preDraw = ViewTreeObserver.OnPreDrawListener { backdrop.capture(this); true }
 
   override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
     setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec))
@@ -45,20 +49,13 @@ abstract class LensControl(context: Context, appContext: AppContext) : ExpoView(
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
-    backdrop.onAttached()
-    viewTreeObserver.addOnPreDrawListener(preDraw)
+    backdrop.attach()
   }
 
   override fun onDetachedFromWindow() {
-    viewTreeObserver.removeOnPreDrawListener(preDraw)
+    backdrop.detach()
     Choreographer.getInstance().removeFrameCallback(frame); looping = false
     super.onDetachedFromWindow()
-  }
-
-  protected fun windowOrigin(): Pair<Float, Float> {
-    val p = parent as? View ?: return 0f to 0f
-    p.getLocationInWindow(ploc)
-    return (ploc[0] + left - p.scrollX).toFloat() to (ploc[1] + top - p.scrollY).toFloat()
   }
 
   /** The control's own track, drawn in local coordinates (also used inside the lens). */
@@ -66,22 +63,20 @@ abstract class LensControl(context: Context, appContext: AppContext) : ExpoView(
 
   /** Glass lens centered on (cx, cy): refracts the page AND our track. */
   protected fun drawLens(canvas: Canvas, cx: Float, cy: Float, w: Float, h: Float, zoom: Float) {
-    val (wx, wy) = windowOrigin()
     var src: RenderNode? = null
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      // page (already in our local coordinates) + our own track, both refracted by the lens
       val page = backdrop.renderNode()
-      val rn = (lensNode as? RenderNode) ?: RenderNode("liquid-glass-lens-src").also { lensNode = it }
-      val root = rootView
-      rn.setPosition(0, 0, root.width, root.height)
+      val rn = (lensNode as? RenderNode) ?: RenderNode("liquid-glass-lens-src").also { it.setClipToBounds(false); lensNode = it }
+      rn.setPosition(0, 0, width.coerceAtLeast(1), height.coerceAtLeast(1))
       val c = rn.beginRecording()
       try {
         if (page != null) c.drawRenderNode(page)
-        c.translate(wx, wy)
         drawTrack(c)
       } finally { rn.endRecording() }
       src = rn
     }
-    renderer.draw(canvas, src, cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f, h / 2f, wx, wy, lensLook, zoom = zoom)
+    renderer.draw(canvas, src, cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f, h / 2f, lensLook, zoom = zoom)
   }
 
   /** White resting knob with a soft shadow. */

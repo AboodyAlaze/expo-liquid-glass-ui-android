@@ -4,13 +4,13 @@ plugins {
 }
 
 group = 'expo.modules.liquidglassuiandroid'
-version = '0.1.2'
+version = '1.2.2'
 
 android {
   namespace "expo.modules.liquidglassuiandroid"
   defaultConfig {
     versionCode 1
-    versionName "0.1.2"
+    versionName "1.2.2"
   }
   lintOptions {
     abortOnError false

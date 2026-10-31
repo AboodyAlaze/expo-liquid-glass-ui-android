@@ -17,7 +17,7 @@ import {
 export type GlassLookProps = {
   /** Glass color laid over the refraction, e.g. 'rgba(255,255,255,0.15)'. Default depends on `dark`. */
   tintColor?: ColorValue;
-  /** Blur of what's behind, in dp. Default 3 (liquid, not frosted). */
+  /** Blur of what's behind, in dp. Default 0 — blur costs an extra GPU pass, use it sparingly. */
   blur?: number;
   /** How strongly the rim bends the background, in dp. Default 14. */
   refraction?: number;
@@ -53,6 +53,18 @@ type NativeGlassProps = ViewProps & {
   disabled?: boolean;
   onPress?: () => void;
   onLongPress?: () => void;
+  morphBead?: number;
+  morphAnchor?: 'center' | 'left' | 'right';
+  morphOpen?: boolean;
+  onMorphEnd?: (e: { nativeEvent: { open: boolean } }) => void;
+};
+
+/** Internal (GlassToast): native bead → pill morph. */
+export type GlassMorphProps = {
+  morphBead?: number;
+  morphAnchor?: 'center' | 'left' | 'right';
+  morphOpen?: boolean;
+  onMorphEnd?: (e: { nativeEvent: { open: boolean } }) => void;
 };
 
 const NativeGlass =
@@ -62,16 +74,17 @@ const color = (c?: ColorValue | null) => (c == null ? null : (processColor(c) as
 
 /** Splits a style: shape/border/background go to the glass, everything else stays a normal style. */
 function splitStyle(style: StyleProp<ViewStyle>, defaultRadius: number) {
-  const flat = { ...(StyleSheet.flatten(style) ?? {}) } as ViewStyle;
-  const radius = typeof flat.borderRadius === 'number' ? flat.borderRadius : defaultRadius;
-  const borderWidth = typeof flat.borderWidth === 'number' ? flat.borderWidth : 0;
-  const borderColor = flat.borderColor;
-  const background = flat.backgroundColor;
-  delete flat.borderRadius;
-  delete flat.borderWidth;
-  delete flat.borderColor;
-  delete flat.backgroundColor;
-  return { rest: flat, radius, borderWidth, borderColor, background };
+  // (style props are readonly in React Native 0.88+: split by destructuring, never `delete`)
+  const {
+    borderRadius,
+    borderWidth: bw,
+    borderColor,
+    backgroundColor: background,
+    ...rest
+  } = (StyleSheet.flatten(style) ?? {}) as ViewStyle;
+  const radius = typeof borderRadius === 'number' ? borderRadius : defaultRadius;
+  const borderWidth = typeof bw === 'number' ? bw : 0;
+  return { rest: rest as ViewStyle, radius, borderWidth, borderColor, background };
 }
 
 /** Internal: shared by GlassView, GlassCard and GlassButton. */
@@ -89,14 +102,19 @@ export function GlassSurface({
   onPress,
   onLongPress,
   defaultRadius = 24,
+  morphBead,
+  morphAnchor,
+  morphOpen,
+  onMorphEnd,
   ...rest
-}: GlassViewProps & {
-  interactive?: boolean;
-  disabled?: boolean;
-  onPress?: () => void;
-  onLongPress?: () => void;
-  defaultRadius?: number;
-}) {
+}: GlassViewProps &
+  GlassMorphProps & {
+    interactive?: boolean;
+    disabled?: boolean;
+    onPress?: () => void;
+    onLongPress?: () => void;
+    defaultRadius?: number;
+  }) {
   const scheme = useColorScheme();
   const isDark = dark ?? scheme === 'dark';
   const s = splitStyle(style, defaultRadius);
@@ -137,7 +155,11 @@ export function GlassSurface({
       interactive={interactive}
       disabled={disabled}
       onPress={onPress}
-      onLongPress={onLongPress}>
+      onLongPress={onLongPress}
+      morphBead={morphBead}
+      morphAnchor={morphAnchor}
+      morphOpen={morphOpen}
+      onMorphEnd={onMorphEnd}>
       {children}
     </NativeGlass>
   );
@@ -199,9 +221,7 @@ export function GlassContainer({
 }: GlassContainerProps) {
   const scheme = useColorScheme();
   if (!NativeContainer) return <View {...rest} style={style}>{children}</View>;
-  const flat = { ...(StyleSheet.flatten(style) ?? {}) } as ViewStyle;
-  const background = flat.backgroundColor;
-  delete flat.backgroundColor;
+  const { backgroundColor: background, ...flat } = (StyleSheet.flatten(style) ?? {}) as ViewStyle;
   return (
     <NativeContainer
       {...rest}

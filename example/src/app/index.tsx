@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from 'react';
-import { LinearGradient } from 'expo-linear-gradient';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   GlassButton,
@@ -11,6 +10,7 @@ import {
   GlassSwitch,
   GlassView,
   haptic,
+  useGlassToast,
 } from 'expo-liquid-glass-ui-android';
 
 const INK = '#fff';
@@ -25,10 +25,10 @@ export default function Demo() {
   const [sortBy, setSortBy] = useState('Date');
   const [showDone, setShowDone] = useState(true);
   const [last, setLast] = useState('Tap something');
+  const toast = useGlassToast();
 
   return (
     <View style={styles.screen}>
-      <Wallpaper />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.h1}>Liquid Glass UI</Text>
         <Text style={styles.sub}>{last}</Text>
@@ -37,7 +37,12 @@ export default function Demo() {
         <Section title="GlassButton · GlassContainer">
           <Text style={styles.hint}>Pull a button toward its neighbour: they melt together</Text>
           <GlassContainer dark style={styles.row}>
-            <GlassButton style={styles.btn} title="Default" dark onPress={() => setLast('Default pressed')} />
+            <GlassButton
+              style={styles.btn}
+              title="Default"
+              dark
+              onPress={() => setLast('Default pressed')}
+            />
             <GlassButton
               title="Bordered"
               dark
@@ -55,7 +60,10 @@ export default function Demo() {
             </GlassButton>
             <GlassButton
               dark
-              style={[styles.btn, { width: 58, height: 58, paddingHorizontal: 0, paddingVertical: 0 }]}
+              style={[
+                styles.btn,
+                { width: 58, height: 58, paddingHorizontal: 0, paddingVertical: 0 },
+              ]}
               onPress={() => setLast('Round icon button')}
               onLongPress={() => setLast('Long press!')}>
               <Text style={styles.btnIcon}>＋</Text>
@@ -64,36 +72,15 @@ export default function Demo() {
           <View style={styles.row}>
             <GlassButton
               title="Tinted"
-              style={[styles.btn, { backgroundColor: 'rgba(10,132,255,0.45)', paddingHorizontal: 30 }]}
+              style={[
+                styles.btn,
+                { backgroundColor: 'rgba(10,132,255,0.45)', paddingHorizontal: 30 },
+              ]}
               titleStyle={{ color: '#fff' }}
               onPress={() => setLast('Tinted pressed')}
             />
             <GlassButton style={styles.btn} title="Disabled" dark disabled />
           </View>
-        </Section>
-
-        {/* ───────── Card: width from you, height from its content ───────── */}
-        <Section title="GlassCard">
-          <GlassCard dark style={{ width: '100%', padding: 0 }}>
-            <View style={styles.cardHeader}>
-              <View style={styles.avatar}><Text style={styles.avatarText}>AA</Text></View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardName}>Abdullrahman <Text style={styles.pro}> PRO </Text></Text>
-                <Text style={styles.cardMail}>abdullrahmanalaa@gmail.com</Text>
-              </View>
-            </View>
-            <View style={styles.divider} />
-            <CardRow icon="⚙︎" title="Account Settings" onPress={() => setLast('Account Settings')} />
-            <View style={styles.cardRow}>
-              <Text style={styles.rowIcon}>☾</Text>
-              <Text style={styles.rowTitle}>Dark mode</Text>
-              <GlassSwitch value={dark} onValueChange={setDark} />
-            </View>
-            <CardRow icon="▤" title="View Analytics" onPress={() => setLast('View Analytics')} />
-            <View style={[styles.divider, { marginHorizontal: 20 }]} />
-            <CardRow icon="⇥" title="Logout" onPress={() => setLast('Logout')} />
-            <View style={{ height: 8 }} />
-          </GlassCard>
         </Section>
 
         {/* ───────── Switch & Slider ───────── */}
@@ -112,37 +99,96 @@ export default function Demo() {
               <Text style={styles.label}>Rating (step 10)</Text>
               <Text style={styles.value}>{rating}</Text>
             </View>
-            <GlassSlider value={rating} minimumValue={0} maximumValue={100} step={10} accentColor="#FF9F0A" onValueChange={setRating} />
+            <GlassSlider
+              value={rating}
+              minimumValue={0}
+              maximumValue={100}
+              step={10}
+              accentColor="#FF9F0A"
+              onValueChange={setRating}
+            />
           </GlassView>
+        </Section>
+
+        {/* ───────── Toast ───────── */}
+        <Section title="GlassToast">
+          <View style={styles.row}>
+            <GlassButton
+              style={styles.btn}
+              title="Weather"
+              dark
+              onPress={() =>
+                toast.show({ title: 'Sunny · 32°', subtitle: 'Erbil · feels like 35°' })
+              }
+            />
+            <GlassButton
+              style={styles.btn}
+              title="Opens right"
+              dark
+              onPress={() =>
+                toast.show({
+                  title: 'Saved',
+                  icon: <Text style={{ fontSize: 18 }}>✅</Text>,
+                  expandFrom: 'right',
+                })
+              }
+            />
+          </View>
         </Section>
 
         {/* ───────── Sheet & Menu ───────── */}
         <Section title="GlassSheet · GlassMenu">
           <View style={styles.row}>
-            <GlassButton style={styles.btn} title="Open sheet" dark onPress={() => setSheet(true)} />
+            <GlassButton
+              style={styles.btn}
+              title="Open sheet"
+              dark
+              onPress={() => setSheet(true)}
+            />
             <GlassMenu
               dark
               items={[
-                { title: 'Show Info', icon: <Text style={styles.menuIcon}>ⓘ</Text>, onPress: () => setSheet(true) },
-                { title: 'Select Items', icon: <Text style={styles.menuIcon}>◎</Text>, onPress: () => setLast('Select Items') },
+                {
+                  title: 'Show Info',
+                  icon: <Text style={styles.menuIcon}>ⓘ</Text>,
+                  onPress: () => setSheet(true),
+                },
+                {
+                  title: 'Select Items',
+                  icon: <Text style={styles.menuIcon}>◎</Text>,
+                  onPress: () => setLast('Select Items'),
+                },
                 {
                   title: 'Sort By',
                   icon: <Text style={styles.menuIcon}>⇅</Text>,
                   items: ['Date', 'Amount', 'Name'].map((m) => ({
                     title: m,
                     checked: sortBy === m,
-                    onPress: () => { setSortBy(m); setLast(`Sorted by ${m}`); },
+                    onPress: () => {
+                      setSortBy(m);
+                      setLast(`Sorted by ${m}`);
+                    },
                   })),
                 },
-                { title: 'Show Completed', icon: <Text style={styles.menuIcon}>☑︎</Text>, checked: showDone, onPress: () => setShowDone((v) => !v) },
-                { title: 'Delete List', icon: <Text style={[styles.menuIcon, { color: '#FF453A' }]}>⌫</Text>, destructive: true, onPress: () => setLast('Deleted (demo)') },
+                {
+                  title: 'Show Completed',
+                  icon: <Text style={styles.menuIcon}>☑︎</Text>,
+                  checked: showDone,
+                  onPress: () => setShowDone((v) => !v),
+                },
+                {
+                  title: 'Delete List',
+                  icon: <Text style={[styles.menuIcon, { color: '#FF453A' }]}>⌫</Text>,
+                  destructive: true,
+                  onPress: () => setLast('Deleted (demo)'),
+                },
               ]}>
               <GlassButton style={styles.btn} title="Menu  •••" dark />
             </GlassMenu>
           </View>
         </Section>
 
-        <Text style={[styles.sub, { marginTop: 24 }]}>Scroll: the glass bends the wallpaper behind it ↓</Text>
+        <Text style={[styles.sub, { marginTop: 24 }]}>Scroll ↓</Text>
         <View style={{ height: 240 }} />
       </ScrollView>
 
@@ -158,7 +204,15 @@ export default function Demo() {
           <Text style={styles.label}>Wi-Fi</Text>
           <GlassSwitch value={wifi} onValueChange={setWifi} />
         </View>
-        <GlassButton title="Done" dark style={[styles.btn, { marginTop: 20 }]} onPress={() => { haptic('success'); setSheet(false); }} />
+        <GlassButton
+          title="Done"
+          dark
+          style={[styles.btn, { marginTop: 20 }]}
+          onPress={() => {
+            haptic('success');
+            setSheet(false);
+          }}
+        />
       </GlassSheet>
     </View>
   );
@@ -179,7 +233,16 @@ function CardRow({ icon, title, onPress }: { icon: string; title: string; onPres
       dark
       tintColor="rgba(255,255,255,0.02)"
       refraction={6}
-      style={[styles.btn, { marginHorizontal: 10, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, justifyContent: 'flex-start' }]}
+      style={[
+        styles.btn,
+        {
+          marginHorizontal: 10,
+          borderRadius: 14,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          justifyContent: 'flex-start',
+        },
+      ]}
       onPress={onPress}>
       <Text style={styles.rowIcon}>{icon}</Text>
       <Text style={styles.rowTitle}>{title}</Text>
@@ -187,35 +250,35 @@ function CardRow({ icon, title, onPress }: { icon: string; title: string; onPres
   );
 }
 
-/** Smooth gradient + faint lettering, so the glass has something to bend. */
-function Wallpaper() {
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <LinearGradient
-        colors={['#06104a', '#1d3fd6', '#1e9fd0', '#5fd6e0']}
-        locations={[0, 0.4, 0.75, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      {Array.from({ length: 22 }).map((_, i) => (
-        <Text key={i} style={[styles.stripe, { top: 40 + i * 64 }]}>
-          LIQUID  GLASS  ·  LIQUID  GLASS
-        </Text>
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0b1a4a' },
+  screen: { flex: 1, backgroundColor: '#000000' },
   content: { paddingHorizontal: 20, paddingTop: 70 },
   h1: { color: INK, fontSize: 34, fontWeight: '800', textAlign: 'center' },
   sub: { color: SUB, fontSize: 15, marginTop: 4, textAlign: 'center' },
-  section: { color: SUB, fontSize: 13, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', textAlign: 'center' },
+  section: {
+    color: SUB,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
   // your button layout (the package imposes none)
-  btn: { paddingHorizontal: 22, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  row: { flexDirection: 'row', gap: 14, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' },
+  btn: {
+    paddingHorizontal: 22,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
   hint: { color: SUB, fontSize: 13, textAlign: 'center', marginTop: -4 },
   btnIcon: { color: INK, fontSize: 20 },
   btnText: { color: INK, fontSize: 17, fontWeight: '600' },
@@ -223,17 +286,28 @@ const styles = StyleSheet.create({
   label: { color: INK, fontSize: 17 },
   value: { color: SUB, fontSize: 17 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 20 },
-  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#c97a55', alignItems: 'center', justifyContent: 'center' },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#c97a55',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarText: { color: '#fff', fontWeight: '700', fontSize: 17 },
   cardName: { color: INK, fontSize: 17, fontWeight: '600' },
   pro: { color: '#a8e8ff', fontSize: 11, fontWeight: '800' },
   cardMail: { color: SUB, fontSize: 13, marginTop: 2 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.3)' },
-  cardRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 10 },
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+  },
   rowIcon: { color: INK, fontSize: 18, width: 30 },
   rowTitle: { color: INK, fontSize: 16, flex: 1 },
   menuIcon: { color: INK, fontSize: 18 },
   sheetTitle: { color: INK, fontSize: 26, fontWeight: '800' },
   sheetSub: { color: SUB, fontSize: 14 },
-  stripe: { position: 'absolute', left: 0, right: 0, textAlign: 'center', color: 'rgba(255,255,255,0.07)', fontSize: 28, fontWeight: '900' },
 });

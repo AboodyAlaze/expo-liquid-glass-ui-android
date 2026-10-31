@@ -28,6 +28,7 @@ class LiquidGlassSliderView(context: Context, appContext: AppContext) : LensCont
 
   private val pos = Spring(0f, 900f, 0.85f)    // 0..1 along the track
   private val hold = Spring(0f, 520f, 0.7f)
+  override fun lensVisible() = hold.value > 0.001f || hold.target > 0f
   private val stretch = Spring(0f, 300f, 0.5f)
   private var dragging = false
   private var grab = 0f
@@ -38,7 +39,7 @@ class LiquidGlassSliderView(context: Context, appContext: AppContext) : LensCont
   internal fun setValueFromJs(v: Float) {
     val f = norm(v)
     if (!initialized) { initialized = true; pos.snap(f); invalidate(); return }
-    if (dragging) return
+    if (dragging || f == pos.target) return // ignore echoes of what we already show
     pos.target = f; startLoop()
   }
 

@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.os.Build
 import android.view.Choreographer
 import android.view.View
-import android.view.ViewTreeObserver
 import expo.modules.kotlin.AppContext
 import expo.modules.kotlin.views.ExpoView
 
@@ -15,7 +14,8 @@ import expo.modules.kotlin.views.ExpoView
  * piece of liquid glass. Pull a button toward its neighbour and they melt together with a liquid
  * bridge; let go and they separate again.
  *
- * The container itself is invisible (it only lays its children out, like a View).
+ * The container itself is invisible (it only lays its children out, like a View). It captures
+ * nothing itself (the window's BackdropManager does) and doesn't redraw while you scroll.
  */
 class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoView(context, appContext) {
   private val d = resources.displayMetrics.density
@@ -25,11 +25,29 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
   internal var dark = false
 
   private val renderer = GlassRenderer(d)
-  private val backdrop = Backdrop()
   private val shapes = FloatArray(8 * 5)
-  private val ploc = IntArray(2)
-  private var lastX = Int.MIN_VALUE
-  private var lastY = Int.MIN_VALUE
+  private val glowTmp = FloatArray(3)
+
+  private val appear = Spring(0f, 600f, 1f)
+  private var fading = false
+  private val fadeFrame = object : Choreographer.FrameCallback {
+    private var last = 0L
+    override fun doFrame(now: Long) {
+      val dt = if (last == 0L) 0.016f else ((now - last) / 1e9f).coerceIn(0.001f, 0.032f)
+      last = now
+      val moving = appear.step(dt)
+      invalidate()
+      if (moving) Choreographer.getInstance().postFrameCallback(this) else { fading = false; last = 0L }
+    }
+  }
+
+  private val backdrop = Backdrop(this, object : Backdrop.Client {
+    override fun wantsBackdrop() = childCount > 0
+    override fun onBackdropReady() {
+      appear.target = 1f
+      if (!fading) { fading = true; Choreographer.getInstance().postFrameCallback(fadeFrame) }
+    }
+  })
 
   init {
     setWillNotDraw(false)
@@ -56,44 +74,16 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
     invalidate()
   }
 
-  private val appear = Spring(0f, 600f, 1f)
-  private var fading = false
-  private val fadeFrame = object : Choreographer.FrameCallback {
-    private var last = 0L
-    override fun doFrame(now: Long) {
-      val dt = if (last == 0L) 0.016f else ((now - last) / 1e9f).coerceIn(0.001f, 0.032f)
-      last = now
-      val moving = appear.step(dt)
-      invalidate()
-      if (moving) Choreographer.getInstance().postFrameCallback(this) else fading = false
-    }
-  }
-
-  private val preDraw = ViewTreeObserver.OnPreDrawListener {
-    if (backdrop.capture(this)) {
-      if (appear.target == 0f && !fading) { appear.target = 1f; fading = true; Choreographer.getInstance().postFrameCallback(fadeFrame) }
-      val (x, y) = windowOrigin()
-      if (x != lastX || y != lastY) invalidate()
-    }
-    true
-  }
-
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
-    backdrop.onAttached()
-    viewTreeObserver.addOnPreDrawListener(preDraw)
-    Choreographer.getInstance().postFrameCallback { invalidate() } // first frame with a backdrop
+    backdrop.attach()
   }
 
   override fun onDetachedFromWindow() {
-    viewTreeObserver.removeOnPreDrawListener(preDraw)
+    backdrop.detach()
+    Choreographer.getInstance().removeFrameCallback(fadeFrame); fading = false
+    appear.snap(0f)
     super.onDetachedFromWindow()
-  }
-
-  private fun windowOrigin(): Pair<Int, Int> {
-    val p = parent as? View ?: return 0 to 0
-    p.getLocationInWindow(ploc)
-    return (ploc[0] + left - p.scrollX) to (ploc[1] + top - p.scrollY)
   }
 
   override fun dispatchDraw(canvas: Canvas) {
@@ -110,21 +100,20 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
       val o = n * 5
       shapes[o] = cx - hw; shapes[o + 1] = cy - hh; shapes[o + 2] = cx + hw; shapes[o + 3] = cy + hh
       shapes[o + 4] = c.cornerRadiusPx() * minOf(c.scaleX, c.scaleY)
-      val g = c.glowLocal()
-      if (g[2] > glow) {
-        glow = g[2]
-        glowX = cx + (g[0] - c.width / 2f) * c.scaleX
-        glowY = cy + (g[1] - c.height / 2f) * c.scaleY
+      c.glowLocal(glowTmp)
+      if (glowTmp[2] > glow) {
+        glow = glowTmp[2]
+        glowX = cx + (glowTmp[0] - c.width / 2f) * c.scaleX
+        glowY = cy + (glowTmp[1] - c.height / 2f) * c.scaleY
       }
       n++
     }
     val canCapture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    if (n > 0 && (backdrop.ready || !canCapture)) {
-      val (x, y) = windowOrigin(); lastX = x; lastY = y
-      look.tint = tintColor ?: if (dark) Color.argb(46, 0, 0, 0) else Color.argb(36, 255, 255, 255)
+    val node = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null
+    if (n > 0 && (node != null || !canCapture)) {
+      look.tint = tintColor ?: if (dark) Color.argb(77, 60, 60, 67) else Color.argb(36, 255, 255, 255)
       renderer.drawShapes(
-        canvas, if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null,
-        shapes, n, x.toFloat(), y.toFloat(), look, spacingDp * d,
+        canvas, node, shapes, n, look, spacingDp * d,
         glowX = glowX, glowY = glowY, glow = glow,
         alpha = if (canCapture) appear.value else 1f,
       )

@@ -1,5 +1,8 @@
 import { createContext, Fragment, useContext, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+import { GlassToastProvider } from './GlassToast';
 
 type PortalApi = { mount(key: string, node: ReactNode): void; unmount(key: string): void };
 const PortalContext = createContext<PortalApi | null>(null);
@@ -7,6 +10,8 @@ const PortalContext = createContext<PortalApi | null>(null);
 /**
  * Put this once around your app (e.g. in the root _layout). GlassSheet and GlassMenu render
  * into it, ABOVE everything else, so their glass refracts the whole screen behind them.
+ * It also sets up Gesture Handler (the sheet and menu gestures run on the UI thread), so you
+ * don't need your own GestureHandlerRootView for them.
  */
 export function LiquidGlassProvider({ children }: { children: ReactNode }) {
   const [portals, setPortals] = useState<Record<string, ReactNode>>({});
@@ -24,14 +29,18 @@ export function LiquidGlassProvider({ children }: { children: ReactNode }) {
     []
   );
   return (
+    <GestureHandlerRootView style={styles.fill}>
     <PortalContext.Provider value={api}>
-      <View style={styles.fill}>{children}</View>
-      <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-        {Object.entries(portals).map(([k, node]) => (
-          <Fragment key={k}>{node}</Fragment>
-        ))}
-      </View>
+      <GlassToastProvider>
+        <View style={styles.fill}>{children}</View>
+        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+          {Object.entries(portals).map(([k, node]) => (
+            <Fragment key={k}>{node}</Fragment>
+          ))}
+        </View>
+      </GlassToastProvider>
     </PortalContext.Provider>
+    </GestureHandlerRootView>
   );
 }
 

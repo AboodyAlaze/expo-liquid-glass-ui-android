@@ -9,3 +9,5 @@ export type { GlassMenuProps, GlassMenuItem } from './GlassMenu';
 export { LiquidGlassProvider, Portal } from './Provider';
 export { haptic } from './haptics';
 export type { HapticStyle } from './haptics';
+export { useGlassToast } from './GlassToast';
+export type { GlassToastOptions } from './GlassToast';
