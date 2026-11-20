@@ -43,6 +43,19 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
   internal var interactive = false
   internal var disabled = false
 
+  /** How much GPU this glass may use (see [Quality]). Default: decided from the device. */
+  internal var quality: Quality = Quality.resolve(context, null)
+    set(v) {
+      if (field == v) return
+      field = v
+      if (isAttachedToWindow) { if (v == Quality.LOW) backdrop.detach() else backdrop.attach() }
+      invalidate()
+    }
+
+  /** True when this glass is drawn with the cheap look instead of the shader. */
+  private fun isLite(): Boolean =
+    quality == Quality.LOW || (quality == Quality.MEDIUM && width * height > LARGE_PX_DP2 * d * d)
+
   private val renderer = GlassRenderer(d)
   private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
   private val rect = RectF()
@@ -73,13 +86,13 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
   // ───────── backdrop (captured by the window's BackdropManager, shared) ─────────
   private val appear = Spring(0f, 600f, 1f) // glass fades in once it has a real backdrop
   private val backdrop = Backdrop(this, object : Backdrop.Client {
-    override fun wantsBackdrop() = !grouped
+    override fun wantsBackdrop() = !grouped && !isLite()
     override fun onBackdropReady() { appear.target = 1f; startLoop(); invalidate() }
   })
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
-    backdrop.attach()
+    if (quality != Quality.LOW) backdrop.attach()
   }
 
   override fun onDetachedFromWindow() {
@@ -127,13 +140,14 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
     val r = if (morphBeadDp > 0f) rect.height() / 2f else min(cornerRadiusDp * d, min(width, height) / 2f)
     // Before the first real capture we draw no glass at all (instead of a grey stand-in that
     // would "pop" into glass); old devices without capture keep their simple translucent look.
-    val canCapture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val node = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null
+    val canCapture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !isLite()
+    val node = if (canCapture && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null
     glassDrawn = !grouped && (node != null || !canCapture)
     if (glassDrawn) renderer.draw(
       canvas, node, rect.left, rect.top, rect.right, rect.bottom, r, look,
       glowX = touchX, glowY = touchY, glow = glow.value,
       alpha = if (canCapture) appear.value else 1f,
+      medium = quality == Quality.MEDIUM,
     )
     if (borderWidthDp > 0f) {
       val bw = borderWidthDp * d
@@ -285,3 +299,6 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
     Choreographer.getInstance().postFrameCallback(frame)
   }
 }
+
+/** MEDIUM: surfaces bigger than this (dp², ~ a 220 × 220 card) use the cheap look — GPU cost grows with pixels. */
+private const val LARGE_PX_DP2 = 48_000f

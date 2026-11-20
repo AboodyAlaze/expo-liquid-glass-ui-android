@@ -1,4 +1,5 @@
 import { requireNativeView } from 'expo';
+import { useContext } from 'react';
 import {
   Platform,
   Switch,
@@ -10,6 +11,8 @@ import {
   type ViewProps,
   type ViewStyle,
 } from 'react-native';
+
+import { QualityContext, type GlassQuality } from './quality';
 
 type ValueEvent<T> = { nativeEvent: { value: T } };
 
@@ -24,6 +27,8 @@ export type GlassSwitchProps = {
   offColor?: ColorValue;
   disabled?: boolean;
   dark?: boolean;
+  /** GPU budget for the lens: 'auto' (default) | 'high' | 'medium' | 'low'. */
+  quality?: GlassQuality;
   /** Default size 63 × 28 (iOS 26). */
   style?: StyleProp<ViewStyle>;
 };
@@ -34,6 +39,7 @@ type NativeSwitchProps = ViewProps & {
   offColor?: number | null;
   disabled?: boolean;
   dark: boolean;
+  quality?: GlassQuality;
   onValueChange?: (e: ValueEvent<boolean>) => void;
 };
 
@@ -41,8 +47,9 @@ const NativeSwitch =
   Platform.OS === 'android' ? requireNativeView<NativeSwitchProps>('LiquidGlassSwitch') : null;
 
 /** iOS 26-style switch: tap or drag; the knob turns into a liquid lens while you hold it. */
-export function GlassSwitch({ value, onValueChange, onColor, offColor, disabled, dark, style }: GlassSwitchProps) {
+export function GlassSwitch({ value, onValueChange, onColor, offColor, disabled, dark, quality, style }: GlassSwitchProps) {
   const scheme = useColorScheme();
+  const providerQuality = useContext(QualityContext);
   if (!NativeSwitch) {
     return <Switch value={value} onValueChange={onValueChange} disabled={disabled} trackColor={{ true: onColor as string }} style={style} />;
   }
@@ -54,6 +61,7 @@ export function GlassSwitch({ value, onValueChange, onColor, offColor, disabled,
       offColor={offColor == null ? null : (processColor(offColor) as number)}
       disabled={disabled}
       dark={dark ?? scheme === 'dark'}
+      quality={quality ?? providerQuality}
       onValueChange={(e) => onValueChange?.(e.nativeEvent.value)}
     />
   );
@@ -76,6 +84,8 @@ export type GlassSliderProps = {
   trackColor?: ColorValue;
   disabled?: boolean;
   dark?: boolean;
+  /** GPU budget for the lens: 'auto' (default) | 'high' | 'medium' | 'low'. */
+  quality?: GlassQuality;
   /** Default: full width, 36 high. */
   style?: StyleProp<ViewStyle>;
 };
@@ -89,6 +99,7 @@ type NativeSliderProps = ViewProps & {
   trackColor?: number | null;
   disabled?: boolean;
   dark: boolean;
+  quality?: GlassQuality;
   onValueChange?: (e: ValueEvent<number>) => void;
   onSlidingComplete?: (e: ValueEvent<number>) => void;
 };
@@ -108,9 +119,11 @@ export function GlassSlider({
   trackColor,
   disabled,
   dark,
+  quality,
   style,
 }: GlassSliderProps) {
   const scheme = useColorScheme();
+  const providerQuality = useContext(QualityContext);
   if (!NativeSlider) return <View style={[{ height: 36, alignSelf: 'stretch' }, style]} />;
   return (
     <NativeSlider
@@ -123,6 +136,7 @@ export function GlassSlider({
       trackColor={trackColor == null ? null : (processColor(trackColor) as number)}
       disabled={disabled}
       dark={dark ?? scheme === 'dark'}
+      quality={quality ?? providerQuality}
       onValueChange={(e) => onValueChange?.(e.nativeEvent.value)}
       onSlidingComplete={(e) => onSlidingComplete?.(e.nativeEvent.value)}
     />

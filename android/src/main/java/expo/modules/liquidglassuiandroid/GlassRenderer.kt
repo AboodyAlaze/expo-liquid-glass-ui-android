@@ -2,6 +2,7 @@ package expo.modules.liquidglassuiandroid
 
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
@@ -66,9 +67,10 @@ class GlassRenderer(private val density: Float) {
     lightAngle: Float = -0.8f, zoom: Float = 1f,
     glowX: Float = 0f, glowY: Float = 0f, glow: Float = 0f,
     alpha: Float = 1f,
+    medium: Boolean = false,
   ) {
     one[0] = left; one[1] = top; one[2] = right; one[3] = bottom; one[4] = radius
-    drawShapes(canvas, backdrop, one, 1, look, 0f, lightAngle, zoom, (left + right) / 2f, (top + bottom) / 2f, glowX, glowY, glow, alpha)
+    drawShapes(canvas, backdrop, one, 1, look, 0f, lightAngle, zoom, (left + right) / 2f, (top + bottom) / 2f, glowX, glowY, glow, alpha, medium)
   }
 
   /**
@@ -82,7 +84,9 @@ class GlassRenderer(private val density: Float) {
     lightAngle: Float = -0.8f, zoom: Float = 1f, zoomX: Float = 0f, zoomY: Float = 0f,
     glowX: Float = 0f, glowY: Float = 0f, glow: Float = 0f,
     alpha: Float = 1f,
+    medium: Boolean = false,
   ) {
+    val chromaPx = if (medium) 0f else look.chroma
     val n = min(count, 8)
     if (n <= 0 || alpha <= 0.001f) return
     var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
@@ -127,7 +131,7 @@ class GlassRenderer(private val density: Float) {
     keyLen = 0
     fun put(v: Float) { key[keyLen++] = v }
     for (i in 0 until n * 5) put(shapes[i] - (if (i % 5 == 0 || i % 5 == 2) ox else if (i % 5 == 4) 0f else oy))
-    put(n.toFloat()); put(merge); put(bezelPx); put(look.refraction * density * k); put(look.chroma)
+    put(n.toFloat()); put(merge); put(bezelPx); put(look.refraction * density * k); put(chromaPx)
     put(lightAngle); put(look.highlight); put(look.saturation); put((look.tint ushr 16).toFloat()); put((look.tint and 0xFFFF).toFloat()); put(zoom)
     put(zoomX - ox); put(zoomY - oy); put(glowX - ox); put(glowY - oy); put(glow); put(look.blur)
     if (keyLen != lastKeyLen || !sameKey()) {
@@ -146,7 +150,7 @@ class GlassRenderer(private val density: Float) {
       sh.setFloatUniform("merge", merge)
       sh.setFloatUniform("bezel", bezelPx)
       sh.setFloatUniform("refraction", look.refraction * density * k)
-      sh.setFloatUniform("chroma", look.chroma)
+      sh.setFloatUniform("chroma", chromaPx)
       sh.setFloatUniform("lightAngle", lightAngle)
       sh.setFloatUniform("highlight", look.highlight)
       sh.setFloatUniform("saturation", look.saturation)
@@ -196,15 +200,43 @@ class GlassRenderer(private val density: Float) {
     rect.set(l, t, r, b); canvas.drawRoundRect(rect, rad, rad, fill)
   }
 
-  /** No backdrop (yet) / old devices: a light, glass-like translucent fill — never a dark blob. */
+  private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+  private var sheen: LinearGradient? = null
+  private var sheenTop = Float.NaN
+  private var sheenBottom = Float.NaN
+
+  /**
+   * The LOW look (also: old devices / no backdrop). A drawn frosted glass — body, soft sheen on the
+   * top half, 1dp rim — with no shader, no capture and no offscreen layer: 3 plain draw calls.
+   */
   private fun drawFallback(canvas: Canvas, s: FloatArray, i: Int, look: GlassLook, alpha: Float) {
     val o = i * 5
     rect.set(s[o], s[o + 1], s[o + 2], s[o + 3])
     val rad = min(s[o + 4], min(rect.width(), rect.height()) / 2f)
-    fill.color = Color.argb((34 * alpha).toInt(), 255, 255, 255)
+    val a = alpha.coerceIn(0f, 1f)
+    fill.shader = null
+    fill.color = Color.argb((34 * a).toInt(), 255, 255, 255)
     canvas.drawRoundRect(rect, rad, rad, fill)
-    fill.color = look.tint; fill.alpha = (min(Color.alpha(look.tint), 60) * alpha).toInt()
+    fill.color = look.tint; fill.alpha = (min(Color.alpha(look.tint), 60) * a).toInt()
     canvas.drawRoundRect(rect, rad, rad, fill)
+    if (rect.height() > 2f) {
+      if (sheen == null || sheenTop != rect.top || sheenBottom != rect.bottom) {
+        sheen = LinearGradient(
+          0f, rect.top, 0f, rect.bottom,
+          intArrayOf(Color.argb(64, 255, 255, 255), Color.argb(0, 255, 255, 255)), null, Shader.TileMode.CLAMP,
+        )
+        sheenTop = rect.top; sheenBottom = rect.bottom
+      }
+      fill.color = Color.WHITE
+      fill.shader = sheen; fill.alpha = (255 * a).toInt()
+      canvas.drawRoundRect(rect, rad, rad, fill)
+      fill.shader = null
+    }
+    val sw = max(1f, density)
+    rim.strokeWidth = sw
+    rim.color = Color.argb((80 * a).toInt(), 255, 255, 255)
+    rect.inset(sw / 2f, sw / 2f)
+    canvas.drawRoundRect(rect, max(rad - sw / 2f, 0f), max(rad - sw / 2f, 0f), rim)
   }
 
   private companion object {

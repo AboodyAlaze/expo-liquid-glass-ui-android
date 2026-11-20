@@ -22,6 +22,7 @@ class LiquidGlassViewModule : Module() {
       Prop("chroma") { v: LiquidGlassView, x: Float -> val nv = x; if (v.look.chroma != nv) { v.look.chroma = nv; v.invalidate() } }
       Prop("highlight") { v: LiquidGlassView, x: Float -> val nv = x; if (v.look.highlight != nv) { v.look.highlight = nv; v.invalidate() } }
       Prop("dark") { v: LiquidGlassView, x: Boolean -> val nv = x; if (v.dark != nv) { v.dark = nv; v.invalidate() } }
+      Prop("quality") { v: LiquidGlassView, q: String? -> v.quality = Quality.resolve(v.context, q) }
       Prop("interactive") { v: LiquidGlassView, x: Boolean -> v.interactive = x }
       Prop("disabled") { v: LiquidGlassView, x: Boolean -> v.disabled = x }
       // morph mode (GlassToast): a bead that opens into a pill, animated natively
@@ -39,6 +40,7 @@ class LiquidGlassContainerModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("LiquidGlassContainer")
     View(LiquidGlassContainerView::class) {
+      Prop("quality") { v: LiquidGlassContainerView, q: String? -> v.quality = Quality.resolve(v.context, q) }
       Prop("spacing") { v: LiquidGlassContainerView, x: Float -> val nv = x; if (v.spacingDp != nv) { v.spacingDp = nv; v.invalidate() } }
       Prop("tintColor") { v: LiquidGlassContainerView, c: Double? -> val nv = c.toColorInt(); if (v.tintColor != nv) { v.tintColor = nv; v.invalidate() } }
       Prop("blur") { v: LiquidGlassContainerView, x: Float -> val nv = x; if (v.look.blur != nv) { v.look.blur = nv; v.invalidate() } }
@@ -55,6 +57,7 @@ class LiquidGlassSwitchModule : Module() {
     Name("LiquidGlassSwitch")
     View(LiquidGlassSwitchView::class) {
       Events("onValueChange")
+      Prop("quality") { v: LiquidGlassSwitchView, q: String? -> v.quality = Quality.resolve(v.context, q) }
       Prop("value") { v: LiquidGlassSwitchView, x: Boolean -> v.setValueFromJs(x) }
       Prop("onColor") { v: LiquidGlassSwitchView, c: Double? -> c.toColorInt()?.let { if (v.onColor != it) { v.onColor = it; v.invalidate() } } }
       Prop("offColor") { v: LiquidGlassSwitchView, c: Double? -> val nv = c.toColorInt(); if (v.offColor != nv) { v.offColor = nv; v.invalidate() } }
@@ -69,6 +72,7 @@ class LiquidGlassSliderModule : Module() {
     Name("LiquidGlassSlider")
     View(LiquidGlassSliderView::class) {
       Events("onValueChange", "onSlidingComplete")
+      Prop("quality") { v: LiquidGlassSliderView, q: String? -> v.quality = Quality.resolve(v.context, q) }
       // range first, then value (props are applied in declaration order)
       Prop("minimumValue") { v: LiquidGlassSliderView, x: Float -> val nv = x; if (v.min != nv) { v.min = nv; v.invalidate() } }
       Prop("maximumValue") { v: LiquidGlassSliderView, x: Float -> val nv = x; if (v.max != nv) { v.max = nv; v.invalidate() } }

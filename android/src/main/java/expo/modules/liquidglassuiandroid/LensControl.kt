@@ -23,9 +23,10 @@ abstract class LensControl(context: Context, appContext: AppContext) : ExpoView(
   protected val d = resources.displayMetrics.density
   internal var dark = false
   internal var disabled = false
+  internal var quality: Quality = Quality.resolve(context, null)
   protected val renderer = GlassRenderer(d)
   protected val backdrop = Backdrop(this, object : Backdrop.Client {
-    override fun wantsBackdrop() = lensVisible()
+    override fun wantsBackdrop() = lensVisible() && quality != Quality.LOW
     override fun onBackdropReady() = invalidate()
   })
 
@@ -64,7 +65,7 @@ abstract class LensControl(context: Context, appContext: AppContext) : ExpoView(
   /** Glass lens centered on (cx, cy): refracts the page AND our track. */
   protected fun drawLens(canvas: Canvas, cx: Float, cy: Float, w: Float, h: Float, zoom: Float) {
     var src: RenderNode? = null
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    if (quality != Quality.LOW && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       // page (already in our local coordinates) + our own track, both refracted by the lens
       val page = backdrop.renderNode()
       val rn = (lensNode as? RenderNode) ?: RenderNode("liquid-glass-lens-src").also { it.setClipToBounds(false); lensNode = it }
@@ -76,7 +77,7 @@ abstract class LensControl(context: Context, appContext: AppContext) : ExpoView(
       } finally { rn.endRecording() }
       src = rn
     }
-    renderer.draw(canvas, src, cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f, h / 2f, lensLook, zoom = zoom)
+    renderer.draw(canvas, src, cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f, h / 2f, lensLook, zoom = zoom, medium = quality == Quality.MEDIUM)
   }
 
   /** White resting knob with a soft shadow. */

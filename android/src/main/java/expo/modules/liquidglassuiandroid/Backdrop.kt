@@ -131,8 +131,11 @@ internal class BackdropManager private constructor(private val root: View) : Vie
       running = false
     }
     // a very slow device: refresh every other frame instead of every frame
+    // (the limit follows the screen: ~40% of one frame — 8 ms was nearly a whole frame at 90 Hz)
     val ms = (System.nanoTime() - t0) / 1_000_000f
-    if (ms > 8f) { if (++slow >= 3) { skip = 1; slow = 0 } } else slow = 0
+    val hz = (root.display?.refreshRate ?: 60f).coerceIn(30f, 144f)
+    val limit = maxOf(3f, 1000f / hz * 0.4f)
+    if (ms > limit) { if (++slow >= 3) { skip = 2; slow = 0 } } else slow = 0
     return true
   }
 

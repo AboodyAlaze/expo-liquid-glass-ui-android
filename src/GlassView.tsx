@@ -1,5 +1,5 @@
 import { requireNativeView } from 'expo';
-import { type ReactNode } from 'react';
+import { useContext, type ReactNode } from 'react';
 import {
   Platform,
   StyleSheet,
@@ -14,6 +14,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { QualityContext, type GlassQuality } from './quality';
+
 export type GlassLookProps = {
   /** Glass color laid over the refraction, e.g. 'rgba(255,255,255,0.15)'. Default depends on `dark`. */
   tintColor?: ColorValue;
@@ -27,6 +29,8 @@ export type GlassLookProps = {
   highlight?: number;
   /** Dark or light glass. Default: follows the system. */
   dark?: boolean;
+  /** GPU budget: 'auto' (default, per device) | 'high' | 'medium' | 'low'. Overrides the Provider's. */
+  quality?: GlassQuality;
 };
 
 export type GlassViewProps = ViewProps &
@@ -49,6 +53,7 @@ type NativeGlassProps = ViewProps & {
   chroma?: number;
   highlight?: number;
   dark: boolean;
+  quality?: GlassQuality;
   interactive?: boolean;
   disabled?: boolean;
   onPress?: () => void;
@@ -97,6 +102,7 @@ export function GlassSurface({
   chroma,
   highlight,
   dark,
+  quality,
   interactive,
   disabled,
   onPress,
@@ -116,6 +122,7 @@ export function GlassSurface({
     defaultRadius?: number;
   }) {
   const scheme = useColorScheme();
+  const providerQuality = useContext(QualityContext);
   const isDark = dark ?? scheme === 'dark';
   const s = splitStyle(style, defaultRadius);
 
@@ -152,6 +159,7 @@ export function GlassSurface({
       chroma={chroma}
       highlight={highlight}
       dark={isDark}
+      quality={quality ?? providerQuality}
       interactive={interactive}
       disabled={disabled}
       onPress={onPress}
@@ -188,6 +196,7 @@ type NativeContainerProps = ViewProps & {
   chroma?: number;
   highlight?: number;
   dark: boolean;
+  quality?: GlassQuality;
 };
 
 const NativeContainer =
@@ -217,9 +226,11 @@ export function GlassContainer({
   chroma,
   highlight,
   dark,
+  quality,
   ...rest
 }: GlassContainerProps) {
   const scheme = useColorScheme();
+  const providerQuality = useContext(QualityContext);
   if (!NativeContainer) return <View {...rest} style={style}>{children}</View>;
   const { backgroundColor: background, ...flat } = (StyleSheet.flatten(style) ?? {}) as ViewStyle;
   return (
@@ -232,7 +243,8 @@ export function GlassContainer({
       refraction={refraction}
       chroma={chroma}
       highlight={highlight}
-      dark={dark ?? scheme === 'dark'}>
+      dark={dark ?? scheme === 'dark'}
+      quality={quality ?? providerQuality}>
       {children}
     </NativeContainer>
   );

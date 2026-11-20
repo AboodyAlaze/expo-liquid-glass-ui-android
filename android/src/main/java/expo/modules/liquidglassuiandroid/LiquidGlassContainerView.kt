@@ -24,6 +24,14 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
   internal var tintColor: Int? = null
   internal var dark = false
 
+  internal var quality: Quality = Quality.resolve(context, null)
+    set(v) {
+      if (field == v) return
+      field = v
+      if (isAttachedToWindow) { if (v == Quality.LOW) backdrop.detach() else backdrop.attach() }
+      invalidate()
+    }
+
   private val renderer = GlassRenderer(d)
   private val shapes = FloatArray(8 * 5)
   private val glowTmp = FloatArray(3)
@@ -42,7 +50,7 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
   }
 
   private val backdrop = Backdrop(this, object : Backdrop.Client {
-    override fun wantsBackdrop() = childCount > 0
+    override fun wantsBackdrop() = childCount > 0 && quality != Quality.LOW
     override fun onBackdropReady() {
       appear.target = 1f
       if (!fading) { fading = true; Choreographer.getInstance().postFrameCallback(fadeFrame) }
@@ -76,7 +84,7 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
-    backdrop.attach()
+    if (quality != Quality.LOW) backdrop.attach()
   }
 
   override fun onDetachedFromWindow() {
@@ -108,14 +116,15 @@ class LiquidGlassContainerView(context: Context, appContext: AppContext) : ExpoV
       }
       n++
     }
-    val canCapture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val node = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null
+    val canCapture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && quality != Quality.LOW
+    val node = if (canCapture && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) backdrop.renderNode() else null
     if (n > 0 && (node != null || !canCapture)) {
       look.tint = tintColor ?: if (dark) Color.argb(77, 60, 60, 67) else Color.argb(36, 255, 255, 255)
       renderer.drawShapes(
         canvas, node, shapes, n, look, spacingDp * d,
         glowX = glowX, glowY = glowY, glow = glow,
         alpha = if (canCapture) appear.value else 1f,
+        medium = quality == Quality.MEDIUM,
       )
     }
     super.dispatchDraw(canvas)

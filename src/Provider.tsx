@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { GlassToastProvider } from './GlassToast';
+import { QualityContext, type GlassQuality } from './quality';
 
 type PortalApi = { mount(key: string, node: ReactNode): void; unmount(key: string): void };
 const PortalContext = createContext<PortalApi | null>(null);
@@ -10,10 +11,11 @@ const PortalContext = createContext<PortalApi | null>(null);
 /**
  * Put this once around your app (e.g. in the root _layout). GlassSheet and GlassMenu render
  * into it, ABOVE everything else, so their glass refracts the whole screen behind them.
+ * `quality` ('auto' | 'high' | 'medium' | 'low') sets the GPU budget of every glass below it.
  * It also sets up Gesture Handler (the sheet and menu gestures run on the UI thread), so you
  * don't need your own GestureHandlerRootView for them.
  */
-export function LiquidGlassProvider({ children }: { children: ReactNode }) {
+export function LiquidGlassProvider({ children, quality = 'auto' }: { children: ReactNode; quality?: GlassQuality }) {
   const [portals, setPortals] = useState<Record<string, ReactNode>>({});
   const api = useMemo<PortalApi>(
     () => ({
@@ -30,6 +32,7 @@ export function LiquidGlassProvider({ children }: { children: ReactNode }) {
   );
   return (
     <GestureHandlerRootView style={styles.fill}>
+    <QualityContext.Provider value={quality}>
     <PortalContext.Provider value={api}>
       <GlassToastProvider>
         <View style={styles.fill}>{children}</View>
@@ -40,6 +43,7 @@ export function LiquidGlassProvider({ children }: { children: ReactNode }) {
         </View>
       </GlassToastProvider>
     </PortalContext.Provider>
+    </QualityContext.Provider>
     </GestureHandlerRootView>
   );
 }

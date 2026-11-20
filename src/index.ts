@@ -7,6 +7,8 @@ export type { GlassSheetProps } from './GlassSheet';
 export { GlassMenu } from './GlassMenu';
 export type { GlassMenuProps, GlassMenuItem } from './GlassMenu';
 export { LiquidGlassProvider, Portal } from './Provider';
+export { useGlassQuality } from './quality';
+export type { GlassQuality } from './quality';
 export { haptic } from './haptics';
 export type { HapticStyle } from './haptics';
 export { useGlassToast } from './GlassToast';

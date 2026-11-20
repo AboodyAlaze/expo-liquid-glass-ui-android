@@ -37,6 +37,30 @@ export default function RootLayout() {
 }
 ```
 
+## Quality & weak devices (v1.3)
+
+Glass is a GPU effect. Cheap phones (4 GB, Adreno 610 / Mali-G52 class) can't afford the shader,
+so every glass has a **quality level**. The default `auto` decides per device — you change nothing:
+
+| level | what it draws | cost |
+|---|---|---|
+| `high` | full effect: refraction, chromatic rim, specular rim, glow | highest |
+| `medium` | same glass, no chromatic split (1 texture sample instead of 3); big surfaces (> ~220 × 220 dp, e.g. a card) are drawn as `low` | medium |
+| `low` | **no shader, no backdrop capture, no offscreen layer**: drawn frosted glass (body + sheen + 1 dp rim). Press / stretch / jelly animations are identical | near zero |
+
+`auto`: Android < 13 → `low` · low-RAM device → `low` · OS-certified performance class → `high` ·
+≥ 11 GB RAM → `high` · ≥ 6.5 GB RAM and ≥ 8 cores → `medium` · everything else → `low`.
+Battery saver steps one level down.
+
+```tsx
+<LiquidGlassProvider quality="auto">…</LiquidGlassProvider>   // default
+<GlassCard quality="low" />                                     // per component (wins over the Provider)
+const q = useGlassQuality();                                    // what the Provider was told
+```
+
+Also in 1.3: the backdrop back-off limit follows the screen's refresh rate (it was a fixed 8 ms,
+almost a whole frame at 90 Hz) and skips two frames instead of one when the device can't keep up.
+
 ## GlassButton
 
 ```tsx

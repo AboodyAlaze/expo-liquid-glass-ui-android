@@ -92,9 +92,13 @@ half4 main(float2 coord) {
     float2 offset = -n * bend * refraction;
     float ca = chroma * bend;
     float3 col;
-    col.r = content.eval(p + offset * (1.0 + ca)).r;
-    col.g = content.eval(p + offset).g;
-    col.b = content.eval(p + offset * (1.0 - ca)).b;
+    if (ca <= 0.0005) {
+        col = float3(content.eval(p + offset).rgb);        // no chromatic split: 1 sample instead of 3
+    } else {
+        col.r = content.eval(p + offset * (1.0 + ca)).r;
+        col.g = content.eval(p + offset).g;
+        col.b = content.eval(p + offset * (1.0 - ca)).b;
+    }
     col = shade(col);
 
     float2 L = float2(cos(lightAngle), sin(lightAngle));
